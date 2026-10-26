@@ -31,6 +31,33 @@ jobs:
       - name: Setup environment
         run: |
           git config --global safe.directory '*'
+      - name: Patch ManicSaveSync frontend return target
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('romsel_dsimenutheme/arm9/source/main.cpp')
+          s = p.read_text()
+          old = """\tu8 srFrontendId[8] = {'A', 'L', 'R', 'S', 4, 0, 3, 0};
+
+\tFILE* file = fopen(\"sd:/_nds/nds-bootstrap/srBackendId.bin\", \"wb\");
+\tfwrite(srFrontendId, 1, 8, file);
+\tfclose(file);
+\tfile = fopen(\"sd:/_nds/nds-bootstrap/srFrontendId.bin\", \"wb\");
+\tfwrite(srFrontendId, 1, 8, file);"""
+          new = """\tu8 srBackendId[8] = {'A', 'L', 'R', 'S', 4, 0, 3, 0};
+\t// ManicSaveSync title ID 000400000F4D5300 (little-endian)
+\tu8 srFrontendId[8] = {0x00, 0x53, 0x4D, 0x0F, 0x00, 0x00, 0x04, 0x00};
+
+\tFILE* file = fopen(\"sd:/_nds/nds-bootstrap/srBackendId.bin\", \"wb\");
+\tfwrite(srBackendId, 1, 8, file);
+\tfclose(file);
+\tfile = fopen(\"sd:/_nds/nds-bootstrap/srFrontendId.bin\", \"wb\");
+\tfwrite(srFrontendId, 1, 8, file);"""
+          if old not in s:
+              raise SystemExit('Expected writeSoftResetId block not found; refusing patch')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -n -A13 'void writeSoftResetId' romsel_dsimenutheme/arm9/source/main.cpp
       - name: Get manual pages
         run: |
           cd manual/nitrofiles
@@ -47,131 +74,13 @@ jobs:
           ./make_cia --srl="booter.nds" --id_0=$(git rev-parse --short=7 HEAD) --tikID=$(git rev-parse --short=16 HEAD)
           mkdir -p "../7zfile/3DS - CFW users/"
           cp "booter.cia" "../7zfile/3DS - CFW users/TWiLight Menu.cia"
-      - name: Pack 7z Package for nightly
+      - name: Stage ManicSaveSync dsimenu test artifact
         run: |
-          # Make artifacts directory
           mkdir -p ~/artifacts
-
-          # Don't include unnecessary files in nightlies
-          rm -rf 7zfile/_nds/TWiLightMenu/extras/fonts
-          rm -rf 7zfile/debug
-          rm -rf 7zfile/roms
-          rm "7zfile/3DS - CFW users/Games supported with widescreen.txt"
-          rm "7zfile/Virtual Console (DSi or Flashcard)/snemul.cfg"
-          rm "7zfile/Virtual Console (3DS, Full)/snemul.cfg"
-
-          cp -r 7zfile/ TWiLightMenu/
-          7z a TWiLightMenu.7z TWiLightMenu/
-          mv TWiLightMenu.7z ~/artifacts
-
-          # DSi 7z
-          cp -r TWiLightMenu/DSi\ -\ CFW\ users/SDNAND\ root/* TWiLightMenu
-          rm -rf TWiLightMenu/DSi\ -\ CFW\ users
-          cp -r TWiLightMenu/DSi\ -\ SD\ card\ users/* TWiLightMenu
-          rm -rf TWiLightMenu/DSi\ -\ SD\ card\ users
-          cp -r TWiLightMenu/DSi\&3DS\ -\ SD\ card\ users/* TWiLightMenu
-          rm -rf TWiLightMenu/DSi\&3DS\ -\ SD\ card\ users
-          rm -rf TWiLightMenu/3DS\ -\ CFW\ users
-          rm -rf TWiLightMenu/Flashcard\ users
-          rm -rf TWiLightMenu/Better\ DSi\ Menu\ Music
-          rm -rf TWiLightMenu/Extra\ UI\ Music
-          rm -rf TWiLightMenu/Multimedia
-          rm -rf "TWiLightMenu/Virtual Console (DSi or Flashcard)"
-          rm -rf "TWiLightMenu/Virtual Console (3DS, Minimal)"
-          rm -rf "TWiLightMenu/Virtual Console (3DS, Full)"
-          rm -rf TWiLightMenu/_nds/TWiLightMenu/bootplg.srldr
-          rm -rf TWiLightMenu/_nds/TWiLightMenu/gbaswitch.srldr
-          7z a TWiLightMenu-DSi.7z TWiLightMenu
-          mv TWiLightMenu-DSi.7z ~/artifacts
-
-          # 3DS 7z
-          rm -rf TWiLightMenu
-          cp -r 7zfile/ TWiLightMenu/
-          cp -r TWiLightMenu/3DS\ -\ CFW\ users/* TWiLightMenu
-          rm -rf TWiLightMenu/3DS\ -\ CFW\ users
-          rm -rf TWiLightMenu/DSi\ -\ SD\ card\ users
-          cp -r TWiLightMenu/DSi\&3DS\ -\ SD\ card\ users/* TWiLightMenu
-          rm -rf TWiLightMenu/DSi\&3DS\ -\ SD\ card\ users
-          rm -rf TWiLightMenu/DSi\ -\ CFW\ users
-          rm -rf TWiLightMenu/Flashcard\ users
-          rm -rf TWiLightMenu/Better\ DSi\ Menu\ Music
-          rm -rf TWiLightMenu/Extra\ UI\ Music
-          rm -rf TWiLightMenu/Multimedia
-          rm -rf "TWiLightMenu/Virtual Console (DSi or Flashcard)"
-          rm -rf "TWiLightMenu/Virtual Console (3DS, Minimal)"
-          rm -rf "TWiLightMenu/Virtual Console (3DS, Full)"
-          rm -rf TWiLightMenu/_nds/TWiLightMenu/unlaunch
-          rm -rf TWiLightMenu/_nds/TWiLightMenu/bootplg.srldr
-          rm -rf TWiLightMenu/_nds/TWiLightMenu/gbaswitch.srldr
-          rm -rf TWiLightMenu/ntrboot.nds
-          7z a -md=16m TWiLightMenu-3DS.7z TWiLightMenu
-          mv TWiLightMenu-3DS.7z ~/artifacts
-
-          # Flashcard 7z
-          rm -rf TWiLightMenu
-          cp -r 7zfile/ TWiLightMenu/
-          cp -r TWiLightMenu/Flashcard\ users/* TWiLightMenu
-          rm -rf TWiLightMenu/Flashcard\ users
-          rm -rf TWiLightMenu/3DS\ -\ CFW\ users
-          rm -rf TWiLightMenu/DSi\ -\ SD\ card\ users
-          rm -rf TWiLightMenu/DSi\&3DS\ -\ SD\ card\ users
-          rm -rf TWiLightMenu/DSi\ -\ CFW\ users
-          rm -rf TWiLightMenu/Better\ DSi\ Menu\ Music
-          rm -rf TWiLightMenu/Extra\ UI\ Music
-          rm -rf TWiLightMenu/Multimedia
-          rm -rf "TWiLightMenu/Virtual Console (DSi or Flashcard)"
-          rm -rf "TWiLightMenu/Virtual Console (3DS, Minimal)"
-          rm -rf "TWiLightMenu/Virtual Console (3DS, Full)"
-          7z a TWiLightMenu-Flashcard.7z TWiLightMenu
-          mv TWiLightMenu-Flashcard.7z ~/artifacts
-
-          # Virtual Console Add-on (DSi or Flashcard) 7z
-          rm -rf TWiLightMenu
-          cp -r "7zfile/Virtual Console (DSi or Flashcard)/" TWiLightMenu
-          7z a -md=16m AddOn-VirtualConsole-DSi-or-Flashcard.7z TWiLightMenu
-          mv AddOn-VirtualConsole-DSi-or-Flashcard.7z ~/artifacts
-
-          # Virtual Console Add-on (3DS, Minimal) 7z
-          rm -rf TWiLightMenu
-          cp -r "7zfile/Virtual Console (3DS, Minimal)/" TWiLightMenu
-          7z a -md=16m AddOn-VirtualConsole-3DS-Minimal.7z TWiLightMenu
-          mv AddOn-VirtualConsole-3DS-Minimal.7z ~/artifacts
-
-          # Virtual Console Add-on (3DS, Full) 7z
-          rm -rf TWiLightMenu
-          cp -r "7zfile/Virtual Console (3DS, Full)/" TWiLightMenu
-          7z a -md=16m AddOn-VirtualConsole-3DS-Full.7z TWiLightMenu
-          mv AddOn-VirtualConsole-3DS-Full.7z ~/artifacts
-
-          # Multimedia Add-on 7z
-          rm -rf TWiLightMenu
-          cp -r 7zfile/Multimedia/ TWiLightMenu
-          7z a -md=16m AddOn-Multimedia.7z TWiLightMenu
-          mv AddOn-Multimedia.7z ~/artifacts
-
-          # Better DSi Menu Music Add-on 7z
-          rm -rf TWiLightMenu
-          cp -r 7zfile/Better\ DSi\ Menu\ Music/ TWiLightMenu
-          7z a -md=16m AddOn-BetterDSiMenuMusic.7z TWiLightMenu
-          mv AddOn-BetterDSiMenuMusic.7z ~/artifacts
-
-          # Extra UI Music Add-on 7z
-          rm -rf TWiLightMenu
-          cp -r 7zfile/Extra\ UI\ Music/ TWiLightMenu
-          7z a -md=16m AddOn-ExtraUIMusic.7z TWiLightMenu
-          mv AddOn-ExtraUIMusic.7z ~/artifacts
-
-          # widescreen.pck
-          cp 7zfile/_nds/TWiLightMenu/extras/widescreen.pck ~/artifacts
+          cp 7zfile/_nds/TWiLightMenu/dsimenu.srldr ~/artifacts/ManicSaveSync-dsimenu-test.srldr
+          sha256sum ~/artifacts/ManicSaveSync-dsimenu-test.srldr
       - name: Publish build to GH Actions
-        if: ${{ success() && !startsWith(github.ref, 'refs/pull') }}
         uses: actions/upload-artifact@v7
         with:
-          path: ~/artifacts/*
-          name: build
-      - name: Publish build to GH Actions (PR)
-        if: ${{ success() && startsWith(github.ref, 'refs/pull') }}
-        uses: actions/upload-artifact@v7
-        with:
-          path: ~/artifacts/TWiLightMenu.7z
-          name: build
+          path: ~/artifacts/ManicSaveSync-dsimenu-test.srldr
+          name: ManicSaveSync-dsimenu-test

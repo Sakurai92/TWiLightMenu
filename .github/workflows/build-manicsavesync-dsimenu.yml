@@ -1,0 +1,80 @@
+name: Build ManicSaveSync DSi Menu Test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-manicsavesync-dsimenu.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+    steps:
+      - name: Checkout fork with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Patch frontend return target
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('romsel_dsimenutheme/arm9/source/main.cpp')
+          s = p.read_text()
+          old = """\tu8 srFrontendId[8] = {'A', 'L', 'R', 'S', 4, 0, 3, 0};
+
+\tFILE* file = fopen(\"sd:/_nds/nds-bootstrap/srBackendId.bin\", \"wb\");
+\tfwrite(srFrontendId, 1, 8, file);
+\tfclose(file);
+\tfile = fopen(\"sd:/_nds/nds-bootstrap/srFrontendId.bin\", \"wb\");
+\tfwrite(srFrontendId, 1, 8, file);"""
+          new = """\tu8 srBackendId[8] = {'A', 'L', 'R', 'S', 4, 0, 3, 0};
+\t// ManicSaveSync CTR title ID: 000400000F4D5300, little-endian bytes.
+\tu8 srFrontendId[8] = {0x00, 0x53, 0x4D, 0x0F, 0x00, 0x00, 0x04, 0x00};
+
+\tFILE* file = fopen(\"sd:/_nds/nds-bootstrap/srBackendId.bin\", \"wb\");
+\tfwrite(srBackendId, 1, 8, file);
+\tfclose(file);
+\tfile = fopen(\"sd:/_nds/nds-bootstrap/srFrontendId.bin\", \"wb\");
+\tfwrite(srFrontendId, 1, 8, file);"""
+          if old not in s:
+              raise SystemExit('Expected writeSoftResetId block not found; refusing unsafe patch')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -n -A14 -B2 'void writeSoftResetId' romsel_dsimenutheme/arm9/source/main.cpp
+
+      - name: Build DSi/3DS menu selector
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd romsel_dsimenutheme
+          make dist
+
+      - name: Locate dsimenu srldr
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -type f \( -name 'dsimenu.srldr' -o -name '*.nds' \) -print
+          test -f ../7zfile/_nds/TWiLightMenu/dsimenu.srldr || test -f 7zfile/_nds/TWiLightMenu/dsimenu.srldr
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p manic-artifact/_nds/TWiLightMenu
+          if [ -f 7zfile/_nds/TWiLightMenu/dsimenu.srldr ]; then
+            cp 7zfile/_nds/TWiLightMenu/dsimenu.srldr manic-artifact/_nds/TWiLightMenu/
+          else
+            cp ../7zfile/_nds/TWiLightMenu/dsimenu.srldr manic-artifact/_nds/TWiLightMenu/
+          fi
+          sha256sum manic-artifact/_nds/TWiLightMenu/dsimenu.srldr
+
+      - name: Upload test srldr
+        uses: actions/upload-artifact@v4
+        with:
+          name: ManicSaveSync-TWiLight-dsimenu-test
+          path: manic-artifact/

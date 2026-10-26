@@ -1,19 +1,19 @@
-name: Build ManicSaveSync DSi Menu Test
+name: Build ManicSaveSync TWiLight Test
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/build-manicsavesync-dsimenu.yml'
-      - 'romsel_dsimenutheme/arm9/source/main.cpp'
+      - ".github/workflows/build-manicsavesync-dsimenu.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitarm:20241104
+
     steps:
-      - name: Checkout fork with submodules
+      - name: Checkout
         uses: actions/checkout@v7
         with:
           submodules: recursive
@@ -25,26 +25,57 @@ jobs:
           sudo apt-get update
           sudo apt-get install p7zip-full python -y
 
-      - name: Verify ManicSaveSync source patch
+      - name: Setup
         run: |
-          set -e
-          grep -n -A16 -B2 'void writeSoftResetId' romsel_dsimenutheme/arm9/source/main.cpp
-          grep -F 'srBackendId' romsel_dsimenutheme/arm9/source/main.cpp
-          grep -F '0x00, 0x53, 0x4D, 0x0F, 0x00, 0x00, 0x04, 0x00' romsel_dsimenutheme/arm9/source/main.cpp
+          git config --global safe.directory '*'
 
-      - name: Build TWiLightMenu++
+      - name: Patch ManicSaveSync return target
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("romsel_dsimenutheme/arm9/source/main.cpp")
+          s = p.read_text()
+
+          old = """\tu8 srFrontendId[8] = {'A', 'L', 'R', 'S', 4, 0, 3, 0};
+
+          \tFILE* file = fopen("sd:/_nds/nds-bootstrap/srBackendId.bin", "wb");
+          \tfwrite(srFrontendId, 1, 8, file);"""
+
+          new = """\tu8 srBackendId[8] = {'A', 'L', 'R', 'S', 4, 0, 3, 0};
+          \tu8 srFrontendId[8] = {0x00, 0x53, 0x4D, 0x0F, 0x00, 0x00, 0x04, 0x00};
+
+          \tFILE* file = fopen("sd:/_nds/nds-bootstrap/srBackendId.bin", "wb");
+          \tfwrite(srBackendId, 1, 8, file);"""
+
+          if old not in s:
+              raise SystemExit("Original writeSoftResetId block not found")
+
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+          grep -n -A14 "void writeSoftResetId" \
+            romsel_dsimenutheme/arm9/source/main.cpp
+
+      - name: Get manual pages
+        run: |
+          cd manual/nitrofiles
+          curl -LO https://github.com/DS-Homebrew/twilight-manual/releases/download/pages/pages.7z
+          7z x pages.7z
+          rm pages.7z
+
+      - name: Build
         run: make package
 
-      - name: Stage dsimenu srldr
+      - name: Stage dsimenu
         run: |
-          set -e
-          test -f '7zfile/_nds/TWiLightMenu/dsimenu.srldr'
           mkdir -p manic-artifact
-          cp '7zfile/_nds/TWiLightMenu/dsimenu.srldr' 'manic-artifact/ManicSaveSync-dsimenu-test.srldr'
-          sha256sum 'manic-artifact/ManicSaveSync-dsimenu-test.srldr'
+          cp 7zfile/_nds/TWiLightMenu/dsimenu.srldr \
+             manic-artifact/ManicSaveSync-dsimenu-test.srldr
+          sha256sum manic-artifact/ManicSaveSync-dsimenu-test.srldr
 
-      - name: Upload test srldr
+      - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: ManicSaveSync-TWiLight-dsimenu-test
+          name: ManicSaveSync-TWiLight-test
           path: manic-artifact/ManicSaveSync-dsimenu-test.srldr

@@ -78,3 +78,4 @@ jobs:
         with:
           name: ManicSaveSync-TWiLight-dsimenu-test
           path: manic-artifact/
+# trigger after enabling Actions
